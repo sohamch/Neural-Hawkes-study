@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[2]:
 
 
 import numpy as np
@@ -53,14 +53,18 @@ class CTLSTM(nn.Module):
         # let's work with reLU for now
         self.sigma = F.relu
     
-    def getRandTimes(self, times):
-        # To compute the integral, we'll use 1e3 samples
+    def getRandTimes(self, times, Nsamples=1000):
+        # To compute the integral, we'll use "Nsamples" samples
         # Our time invterval will be between 0 to times[-1]
-        trands = torch.rand(1000)*times[-1]
+        trands = pt.rand(Nsamples)*times[-1]
         
         # Once the random time instants have been formed, we need to store
         # the intervals in which they lie
-        #
+        # Our assumption here is that the input "times" is an ascending-order
+        # sorted array.
+        
+        t_up = pt.searchsorted(times, trands)
+        # t_up[i] = idx, such that times[idx-1]<trands[i]<times[idx]
         
     
     def forward(self, seq, times):
