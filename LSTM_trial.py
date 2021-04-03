@@ -53,7 +53,7 @@ class CTLSTM(nn.Module):
         # let's work with reLU for now
         self.sigma = F.relu
     
-    def getRandTimes(self, times, Nsamples=1000):
+    def MC_Loss(self, times, Clows, Cbars, deltas, Nsamples=1000):
         # To compute the integral, we'll use "Nsamples" samples
         # Our time invterval will be between 0 to times[-1]
         trands = pt.rand(Nsamples)*times[-1]
@@ -61,11 +61,39 @@ class CTLSTM(nn.Module):
         # Once the random time instants have been formed, we need to store
         # the intervals in which they lie
         # Our assumption here is that the input "times" is an ascending-order
-        # sorted array.
+        # sorted array, and that times[0] =  0
         
         t_up = pt.searchsorted(times, trands)
         # t_up[i] = idx, such that times[idx-1]<trands[i]<times[idx]
         
+        # Using the intervals in which the sample times lie,
+        # we have to find the rates
+        
+        I = torch.tensor([0])
+        for tInd in range(trands.shape[0]):
+            t = trands[tInd]
+            clow = Clows[t_up[tInd]]
+            cbar = Cbars[t_up[tInd]]
+            delta = deltas[t_up[tInd]]
+            tlow = times[t_up[tInd-1]]
+            # compute c(t)
+            ct = cbar + (clow - cbar)*pt.exp((tnext - tnow)*delta)
+            
+            # compute h(t)
+            ht = o * (2*self.sigma(2*ct) - 1)
+            
+            # compute lambda_k(t)
+            lamb_til = self.L_lamb_til(ht.view(-1, K)).view(K)
+            
+            # this will contain the event intensities for all the K events
+            lamb = s * pt.log(1 + pt.exp(lamb_til / s))
+            
+            # get the sum total rate of all events
+            lamb_total = pt.sum(lamb, dim=0)
+            
+            I += lamb_total
+        
+        return I
     
     def forward(self, seq, times):
         # seq : one hot encoded vectors of events (size N_events x K)
