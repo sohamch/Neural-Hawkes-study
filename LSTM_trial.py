@@ -53,6 +53,16 @@ class CTLSTM(nn.Module):
         # let's work with reLU for now
         self.sigma = F.relu
     
+    def getRandTimes(self, times):
+        # To compute the integral, we'll use 1e3 samples
+        # Our time invterval will be between 0 to times[-1]
+        trands = torch.rand(1000)*times[-1]
+        
+        # Once the random time instants have been formed, we need to store
+        # the intervals in which they lie
+        #
+        
+    
     def forward(self, seq, times):
         # seq : one hot encoded vectors of events (size N_events x K)
         # times : times of occurences of the events (size N_events)
