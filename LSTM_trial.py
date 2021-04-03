@@ -53,7 +53,7 @@ class CTLSTM(nn.Module):
         # let's work with reLU for now
         self.sigma = F.relu
     
-    def MC_Loss(self, times, Clows, Cbars, deltas, Nsamples=1000):
+    def MC_Loss(self, times, Clows, Cbars, deltas, OutGates, Nsamples=1000):
         # To compute the integral, we'll use "Nsamples" samples
         # Our time invterval will be between 0 to times[-1]
         trands = pt.rand(Nsamples)*times[-1]
@@ -72,14 +72,19 @@ class CTLSTM(nn.Module):
         I = torch.tensor([0])
         for tInd in range(trands.shape[0]):
             t = trands[tInd]
+            
+            # Need to use cbar, clow and delta for the next time index
             clow = Clows[t_up[tInd]]
             cbar = Cbars[t_up[tInd]]
             delta = deltas[t_up[tInd]]
             tlow = times[t_up[tInd-1]]
+            
             # compute c(t)
-            ct = cbar + (clow - cbar)*pt.exp((tnext - tnow)*delta)
+            # Note here we use "t - tlow"
+            ct = cbar + (clow - cbar)*pt.exp((t - tlow)*delta)
             
             # compute h(t)
+            o = OutGates[t_up[tInd]]
             ht = o * (2*self.sigma(2*ct) - 1)
             
             # compute lambda_k(t)
@@ -117,6 +122,7 @@ class CTLSTM(nn.Module):
         
         deltas = pt.zeros(N_events - 1, K)
         
+        OutGates = pt.zeros(N_events - 1, K)
         
         # Now let's propagate through the event sequence
         # We'll go from event 0 to event N_events-1
@@ -175,6 +181,7 @@ class CTLSTM(nn.Module):
             CLows[evInd, :] = clow
             Cbars[evInd, :] = cbar
             deltas[evInd, :] = delta
+            OutGates[evInd, :] = o
 
 
 # In[ ]:
