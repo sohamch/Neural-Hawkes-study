@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[2]:
+# In[1]:
 
 
 import numpy as np
@@ -15,34 +15,29 @@ import torch.nn.functional as F
 
 class CTLSTM(nn.Module):
     
-    def __init__(self, K):
+    def __init__(self, K, hD):
         super().__init__()
         
         # K : input dimension
         self.K = K
         
-        # Let's make all hidden quantities K-dim for now
-        # i.e, i, f, o, z and c
-        # the decay rate is one-dimensional
+        # hD : dimensionality of hidden nodes
+        self.hD
         
-        # Li = [W_i | U_i] in block form
-        # The input will vector will be [k | h]
+        # input to L_U will be a feature vector, which is K-dim
+        self.L_U = nn.Linear(K, 6*hD) # for each of the six gates + delta
         
-        # For the lower limits of c
-        self.Li = nn.Linear(2*K, K)
-        self.Lf = nn.Linear(2*K, K)
+        # input to L_V will be h_t, which is hD dim
+        self.L_V = nn.Linear(hD, 6*hD)
         
-        # For the upper limits of c
-        self.Libar = nn.Linear(2*K, K)
-        self.Lfbar = nn.Linear(2*K, K)
+        # Remember : the decay rate is one-dimensional
+        # it has different non-linearity, so it needs to be done separately
+        self.D_U == nn.Linear(K, 1)
+        self.D_V == nn.Linear(hD, 1)
         
-        self.Lz = nn.Linear(2*K, K)
-        self.Lo = nn.Linear(2*K, K)
-        self.Ld = nn.Linear(2*K, 1) # to predict the decay parameter delta
-        
-        # to predict lambda_tilde from h(t) - eqn.s (3a) ad (4a)
-        # This linear transformation has no bias
-        self.L_lamb_til = nn.Linear(K, K, bias=False)
+        # We need another linear layer to compute lambda_tilde
+        # This layer takes hD-dimensional h(t) and returns K-dimensional vector
+        self.L_lamb_til = nn.Linear(hD, K)
         
         # Then, to predict lambda from lambda_tilde using softplus,
         # we need scaling parameters
@@ -51,12 +46,15 @@ class CTLSTM(nn.Module):
         self.scale = nn.Parameter(pt.rand(K, requires_grad=True))
         
         # let's work with reLU for now
-        self.sigma = F.relu
+        self.sigma = F.sigmoid
     
     def MC_Loss(self, times, Clows, Cbars, deltas, OutGates, Nsamples=1000):
+        
+        # All the inputs are constructed during the forward pass
+        # on a sequence of events. See the forward function
         # To compute the integral, we'll use "Nsamples" samples
-        # Our time invterval will be between 0 to times[-1]
-        trands = pt.rand(Nsamples)*times[-1]
+        # Our time invterval will be between 0 to times[sampleIndex]
+        trands = pt.rand(Nsamples)*times
         
         # Once the random time instants have been formed, we need to store
         # the intervals in which they lie
@@ -69,7 +67,7 @@ class CTLSTM(nn.Module):
         # Using the intervals in which the sample times lie,
         # we have to find the rates
         
-        I = torch.tensor([0])
+        I = torch.tensor(0.)
         for tInd in range(trands.shape[0]):
             t = trands[tInd]
             
@@ -101,28 +99,27 @@ class CTLSTM(nn.Module):
         return I
     
     def forward(self, seq, times):
-        # seq : one hot encoded vectors of events (size N_events x K)
-        # times : times of occurences of the events (size N_events)
-        N_events = seq.shape[0]
+        # seq : one hot encoded vectors of events (size N_batch x N_events x K)
+        # times : times of occurences of the events (size N_batch x N_events)
+        N_events = seq.shape[1]
+        N_batch = seq.shape[0]
         
         # Need to initialize the cell memories
         # When nothing has occurred, the cell memories should be zero
-        ct = pt.zeros((self.K))
-        cbar = pt.zeros((self.K))
-        ht = pt.zeros((self.K))
+        ct = pt.zeros(N_batch, self.hd)
+        cbar = pt.zeros(N_batch, self.hd)
+        ht = pt.zeros(N_batch, self.hd)
         
-        # Before event 0, there is no history
-        # So the output records predicted intensities 
-        # of events 1 through N_events
-        out = pt.zeros(N_events - 1, K)
+        lambOuts = pt.zeros(N_batch, N_events - 1, self.K)
         
+        # We also need the following quantities to do the MC sampling
         # We also need the "c" values and deltas for the MC sampling
-        Clows = pt.zeros(N_events - 1, K)
-        Cbars = pt.zeros(N_events - 1, K)
+        Clows = pt.zeros(N_batch, N_events - 1, self.hD)
+        Cbars = pt.zeros(N_batch, N_events - 1, self.hD)
         
-        deltas = pt.zeros(N_events - 1, K)
+        deltas = pt.zeros(N_batch, N_events - 1, 1)
         
-        OutGates = pt.zeros(N_events - 1, K)
+        OutGates = pt.zeros(N_batch, N_events - 1, self.hD)
         
         # Now let's propagate through the event sequence
         # We'll go from event 0 to event N_events-1
@@ -130,58 +127,69 @@ class CTLSTM(nn.Module):
         # for the next time index.
         for evInd in range(N_events - 1):
             
-            ev = pt.cat((seq[evInd], ht)).view(-1, K)
+            x = seq[:, evInd, :]  # feature vectors from all batches at this timeStamp
             
-            # Now let's get the parameters
+            # Let's get all the output together first
+            NNOuts = self.sigma(self.L_U(x) + self.L_V(h_t))
             
-            # eqn (5a) and (5b) in the paper on page 5
-            i = self.sigma(self.Li(ev)).view(K)
-            f = self.sigma(self.Lf(ev)).view(K)
+            # Now separate out the quantities
+            # The first index will be for all samples in the batch
+            i, f = NNOuts[:, :self.hd], NNOuts[:, self.hd:2*self.hd]
             
-            # footnote (3) in the paper on page 5
-            ibar = self.sigma(self.Li(ev)).view(K)
-            fbar = self.sigma(self.Lf(ev)).view(K)
+            iBar, fBar = NNOuts[:, 2*self.hd:3*self.hd], NNOuts[:, 3*self.hd:4*self.hd]
             
-            # eqn (5c) and (5d) in the paper on page 5
-            z = self.sigma(self.Lz(ev)).view(K)
-            o = self.sigma(self.Lo(ev)).view(K)
+            # Remember that "z" has a factor of 2 in front of it
+            z, o = 2*NNOuts[:, 4*self.hd:5*self.hd], NNOuts[:, 5*self.hd:6*self.hd]
             
-            # eqn(6c) in the paper in the paper on page 5
-            delta = self.sigma(self.Ld(ev)).view(K)
+            # let's use leaky_relu for delta for now
+            delta = F.leaky_relu(self.D_U(x) + self.D_V(h_t))
+            # delta is (N_batchx1)
             
-            # Once these parameters are learned, we need
-            # to do the updates to c
-            
-            # eqn (6a) and (6b) in the paper on page 5
+            # Now, from these outputs, we need to construct our cell memories
             clow = f * ct + i * z
             cbar = fbar * cbar + ibar * z
+            # clow and cbar are (N_batch x hD)
             
-            # once clow, cbar and delta are found, we need to compute
-            # equation (7) in the paper
-            tnow = times[evInd] if evInd > 0 else 0
-            tnext = times[evInd + 1]
+            # get the times
+            tnow = times[:, evInd].view(-1, 1) # evInd-th time for all sequences in the batch
+            #TODO : make sure here that 0th events have time 0 across the batch
+            
+            tnext = times[:, evInd + 1].view(-1, 1) # evInd+1-th time for all sequences in the batch
+            
+            # get c(t)
             ct = cbar + (clow - cbar)*pt.exp((tnext - tnow)*delta)
+            # ct is N_batch x hD
             
             # with the c(t), we now have to determine h(t)
             # eqn 4(b) on page 4 in the paper
             ht = o * (2*self.sigma(2*ct) - 1)
+            # o is N_batch x hD
+            # (2*self.sigma(2*ct) - 1) is N_batchxhD
+            # so ht is also N_batchxhD
             
+            # ht is now (N_batch x hD)
             # Now, eqn. 4(a) linear part
-            lamb_til = self.L_lamb_til(ht.view(-1, K)).view(K)
+            lamb_til = self.L_lamb_til(ht)
+            # lamb_til is (N_batch x K)
             
-            # Then the softplus part
-            # this will contain the event intensities for all the K events
-            # in the next step.
-            lamb = s * pt.log(1 + pt.exp(lamb_til / s))
+            lamb = self.scale * pt.log(1 + pt.exp(lamb_til/self.scale))
+            # Note : scale ("s") is K-dim vector
+            # lamb_til is (N_batch x K)
+            # lamb_til / s will divide each K-dim row of "lamb_til"
+            # with K-dim "s" element-wise
+            # which is exactly what we want
+            # same goes for the multiplication with s
             
-            # Then record the event intensities for all the events
-            out[evInd, :] = lamb
+            # lamb is therefore (N_batch x K) - the predicted event rates at this timeStamp
+            lambOuts[:, evInd, :] = lamb
             
             # Record the cell memories for the MC sampling
-            CLows[evInd, :] = clow
-            Cbars[evInd, :] = cbar
-            deltas[evInd, :] = delta
-            OutGates[evInd, :] = o
+            CLows[:, evInd, :] = clow
+            Cbars[:, evInd, :] = cbar
+            deltas[:, evInd, :] = delta
+            OutGates[:, evInd, :] = o
+        
+        return lambOuts, CLows, Cbars, deltas, OutGates
 
 
 # In[ ]:
