@@ -25,10 +25,10 @@ class CTLSTM(nn.Module):
         self.hD
         
         # input to L_U will be a feature vector, which is K-dim
-        self.L_U = nn.Linear(K, 6*hD) # for each of the six gates + delta
+        self.L_U = nn.Linear(K, 7*hD) # for each of the six gates + delta
         
         # input to L_V will be h_t, which is hD dim
-        self.L_V = nn.Linear(hD, 6*hD)
+        self.L_V = nn.Linear(hD, 7*hD)
         
         # Remember : the decay rate is one-dimensional
         # it has different non-linearity, so it needs to be done separately
@@ -50,11 +50,15 @@ class CTLSTM(nn.Module):
     
     def MC_Loss(self, times, Clows, Cbars, deltas, OutGates, Nsamples=1000):
         
-        # All the inputs are constructed during the forward pass
-        # on a sequence of events. See the forward function
-        # To compute the integral, we'll use "Nsamples" samples
-        # Our time invterval will be between 0 to times[sampleIndex]
-        trands = pt.rand(Nsamples)*times
+        # "times" is of dimension (N_batch x N_events)
+        # Our time invterval will be between 0 to times[-1]
+        N_batch = times.shape[0]
+        randNums = pt.rand(N_batch, Nsamples)
+        trands = randNums * times[:,-1].view(-1, 1)
+        # trands will be of shape N_batch x Nsamples
+        # each row of trands will correspond to Nsamples
+        # random times between 0 to the end time
+        # of the corresponding sequence.
         
         # Once the random time instants have been formed, we need to store
         # the intervals in which they lie
@@ -62,41 +66,70 @@ class CTLSTM(nn.Module):
         # sorted array, and that times[0] =  0
         
         t_up = pt.searchsorted(times, trands)
-        # t_up[i] = idx, such that times[idx-1]<trands[i]<times[idx]
+        # searchSorted works row-wise automatically
+        # check examples on pytorch documentation website.
+        # For every n^th row of t_up:
+        # t_up[n, i] = idx, such that times[n, idx-1]<trands[n, i]<times[n, idx]
         
         # Using the intervals in which the sample times lie,
         # we have to find the rates
         
-        I = torch.tensor(0.)
-        for tInd in range(trands.shape[0]):
-            t = trands[tInd]
+        I = torch.zeros(N_batch)
+
+        for tInd in range(Nsamples):
+            t = trands[:, tInd].view(-1,1)
             
             # Need to use cbar, clow and delta for the next time index
-            clow = Clows[t_up[tInd]]
-            cbar = Cbars[t_up[tInd]]
-            delta = deltas[t_up[tInd]]
-            tlow = times[t_up[tInd-1]]
+            # For each different sample, different times have been selected.
+            # See stackoverflow 
+            # stackoverflow.com/questions/58523290
+            # to understand how the indices are being tracked.
+            idx = t_up[:, tInd]
+            tlow = times.gather(1, (idx-1).view(-1, 1)).view(-1,1)
+            
+            # To understand indexing multi-d tensors using different indices
+            # see stackoverflow.com/questions/55628014
+            clow = Clows[pt.arange(Clows.shape[0]), idx]
+            cbar = Cbars[pt.arange(Clows.shape[0]), idx]
+            delta = deltas[pt.arange(Clows.shape[0]), idx]
             
             # compute c(t)
             # Note here we use "t - tlow"
             ct = cbar + (clow - cbar)*pt.exp((t - tlow)*delta)
             
             # compute h(t)
-            o = OutGates[t_up[tInd]]
+            o = OutGates[:, t_up[:, tInd], :]
             ht = o * (2*self.sigma(2*ct) - 1)
             
             # compute lambda_k(t)
-            lamb_til = self.L_lamb_til(ht.view(-1, K)).view(K)
+            lamb_til = self.L_lamb_til(ht)
             
             # this will contain the event intensities for all the K events
-            lamb = s * pt.log(1 + pt.exp(lamb_til / s))
+            lamb = self.scale * pt.log(1 + pt.exp(lamb_til / self.scale))
+            # lamb is (N_batch x K)
             
             # get the sum total rate of all events
-            lamb_total = pt.sum(lamb, dim=0)
+            lamb_total = pt.sum(lamb, dim=1)
             
-            I += lamb_total
+            I += lamb_total/Nsamples
         
-        return I
+        return -pt.sum(I, dim=0)/N_batch
+    
+    def logLoss(self, seq, lambOuts):
+        
+        # Here seq should not be one-hot encoded, but just be
+        # the index of which outcome has occurred.
+        N_batch = seq.shape[0]
+        N_events = seq.shape[1]
+        
+        loss = torch.zeros(N_batch)
+        for ev in range(N_events-1):
+            lambs = lambOuts[pt.arange(N_batch), seq[:, ev+1]]
+            logLambs = pt.log(lambs)
+            
+            loss += pt.sum(logLambs, dim=1)
+        
+        return -pt.sum(loss, dim=0)/N_batch
     
     def forward(self, seq, times):
         # seq : one hot encoded vectors of events (size N_batch x N_events x K)
@@ -117,7 +150,7 @@ class CTLSTM(nn.Module):
         Clows = pt.zeros(N_batch, N_events - 1, self.hD)
         Cbars = pt.zeros(N_batch, N_events - 1, self.hD)
         
-        deltas = pt.zeros(N_batch, N_events - 1, 1)
+        deltas = pt.zeros(N_batch, N_events - 1, self.hD)
         
         OutGates = pt.zeros(N_batch, N_events - 1, self.hD)
         
@@ -130,19 +163,19 @@ class CTLSTM(nn.Module):
             x = seq[:, evInd, :]  # feature vectors from all batches at this timeStamp
             
             # Let's get all the output together first
-            NNOuts = self.sigma(self.L_U(x) + self.L_V(h_t))
             
+            NNOuts = self.L_U(x) + self.L_V(h_t)
             # Now separate out the quantities
             # The first index will be for all samples in the batch
-            i, f = NNOuts[:, :self.hd], NNOuts[:, self.hd:2*self.hd]
+            i, f = self.sigma(NNOuts[:, :self.hd]), self.sigma(NNOuts[:, self.hd:2*self.hd])
             
-            iBar, fBar = NNOuts[:, 2*self.hd:3*self.hd], NNOuts[:, 3*self.hd:4*self.hd]
+            iBar, fBar = self.sigma(NNOuts[:, 2*self.hd:3*self.hd]), self.sigma(NNOuts[:, 3*self.hd:4*self.hd])
             
             # Remember that "z" has a factor of 2 in front of it
-            z, o = 2*NNOuts[:, 4*self.hd:5*self.hd], NNOuts[:, 5*self.hd:6*self.hd]
+            z, o = 2*self.sigma(NNOuts[:, 4*self.hd:5*self.hd]), self.sigma(NNOuts[:, 5*self.hd:6*self.hd])
             
             # let's use leaky_relu for delta for now
-            delta = F.leaky_relu(self.D_U(x) + self.D_V(h_t))
+            delta = F.leaky_relu(NNOuts[:, 6*self.hd:7*self.hd])
             # delta is (N_batchx1)
             
             # Now, from these outputs, we need to construct our cell memories
