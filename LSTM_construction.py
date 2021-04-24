@@ -134,9 +134,9 @@ class CTLSTM(nn.Module):
         
         # Need to initialize the cell memories
         # When nothing has occurred, the cell memories should be zero
-        ct = pt.zeros(N_batch, self.hd)
-        cbar = pt.zeros(N_batch, self.hd)
-        ht = pt.zeros(N_batch, self.hd)
+        ct = pt.zeros(N_batch, self.hD)
+        cbar = pt.zeros(N_batch, self.hD)
+        ht = pt.zeros(N_batch, self.hD)
         
         lambOuts = pt.zeros(N_batch, N_events, self.K)
         
@@ -162,15 +162,15 @@ class CTLSTM(nn.Module):
             NNOuts = self.L_U(xNext) + self.L_V(h_t)
             # Now separate out the quantities
             # The first index will be for all samples in the batch
-            i, f = self.sigma(NNOuts[:, :self.hd]), self.sigma(NNOuts[:, self.hd:2*self.hd])
+            i, f = self.sigma(NNOuts[:, :self.hD]), self.sigma(NNOuts[:, self.hD:2*self.hD])
             
-            iBar, fBar = self.sigma(NNOuts[:, 2*self.hd:3*self.hd]), self.sigma(NNOuts[:, 3*self.hd:4*self.hd])
+            iBar, fBar = self.sigma(NNOuts[:, 2*self.hD:3*self.hD]), self.sigma(NNOuts[:, 3*self.hD:4*self.hD])
             
             # Remember that "z" has a factor of 2 in front of it
-            z, o = 2*self.sigma(NNOuts[:, 4*self.hd:5*self.hd]), self.sigma(NNOuts[:, 5*self.hd:6*self.hd])
+            z, o = 2*self.sigma(NNOuts[:, 4*self.hD:5*self.hD]), self.sigma(NNOuts[:, 5*self.hD:6*self.hD])
             
             # let's use leaky_relu for delta for now
-            delta = F.leaky_relu(NNOuts[:, 6*self.hd:7*self.hd])
+            delta = F.leaky_relu(NNOuts[:, 6*self.hD:7*self.hD])
             # delta is (N_batchx1)
             
             # Now, from these outputs, we need to construct our cell memories
