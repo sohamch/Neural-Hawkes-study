@@ -41,7 +41,7 @@ class CTLSTM(nn.Module):
         self.scale = nn.Parameter(pt.rand(K, requires_grad=True))
         
         # let's work with reLU for now
-        self.sigma = F.sigmoid
+        self.sigma = pt.sigmoid
     
     def MC_Loss(self, times, Clows, Cbars, deltas, OutGates, Nsamples=1000):
         
@@ -142,7 +142,7 @@ class CTLSTM(nn.Module):
         
         # We also need the following quantities to do the MC sampling
         # We also need the "c" values and deltas for the MC sampling
-        Clows = pt.zeros(N_batch, N_events, self.hD)
+        CLows = pt.zeros(N_batch, N_events, self.hD)
         Cbars = pt.zeros(N_batch, N_events, self.hD)
         
         deltas = pt.zeros(N_batch, N_events, self.hD)
@@ -159,7 +159,7 @@ class CTLSTM(nn.Module):
             
             # Let's get all the output together first
             
-            NNOuts = self.L_U(xNext) + self.L_V(h_t)
+            NNOuts = self.L_U(xNext) + self.L_V(ht)
             # Now separate out the quantities
             # The first index will be for all samples in the batch
             i, f = self.sigma(NNOuts[:, :self.hD]), self.sigma(NNOuts[:, self.hD:2*self.hD])
@@ -175,7 +175,7 @@ class CTLSTM(nn.Module):
             
             # Now, from these outputs, we need to construct our cell memories
             clow = f * ct + i * z
-            cbar = fbar * cbar + ibar * z
+            cbar = fBar * cbar + iBar * z
             # clow and cbar are (N_batch x hD)
             
             # get the times
