@@ -69,7 +69,7 @@ class CTLSTM(nn.Module):
         # Using the intervals in which the sample times lie,
         # we have to find the rates
         
-        I = torch.zeros(N_batch)
+        I = pt.zeros(N_batch)
 
         for tInd in range(Nsamples):
             t = trands[:, tInd].view(-1,1)
@@ -80,20 +80,22 @@ class CTLSTM(nn.Module):
             # stackoverflow.com/questions/58523290
             # to understand how the indices are being tracked.
             idx = t_up[:, tInd]
-            tlow = times.gather(1, (idx-1).view(-1, 1)).view(-1,1)
+            tlow = times.gather(1, (idx-1).view(-1, 1))
             
             # To understand indexing multi-d tensors using different indices
             # see stackoverflow.com/questions/55628014
-            clow = Clows[pt.arange(Clows.shape[0]), idx]
-            cbar = Cbars[pt.arange(Clows.shape[0]), idx]
-            delta = deltas[pt.arange(Clows.shape[0]), idx]
+            clow = Clows[pt.arange(Clows.shape[0]), idx-1]
+            cbar = Cbars[pt.arange(Clows.shape[0]), idx-1]
+            delta = deltas[pt.arange(Clows.shape[0]), idx-1]
+            o = OutGates[pt.arange(Clows.shape[0]), idx-1]
+                
             
             # compute c(t)
             # Note here we use "t - tlow"
+            # print(cbar.shape, clow.shape, delta.shape, t.shape, tlow.shape, (t - tlow).view(-1,1).shape)
             ct = cbar + (clow - cbar)*pt.exp((t - tlow)*delta)
             
             # compute h(t)
-            o = OutGates[:, t_up[:, tInd], :]
             ht = o * (2*self.sigma(2*ct) - 1)
             
             # compute lambda_k(t)
@@ -105,7 +107,7 @@ class CTLSTM(nn.Module):
             
             # get the sum total rate of all events
             lamb_total = pt.sum(lamb, dim=1)
-            
+            # print(clow.shape, cbar.shape, delta.shape, ct.shape, ht.shape, lamb_til.shape, lamb.shape, lamb_total.shape)
             I += lamb_total/Nsamples
         
         return -pt.sum(I, dim=0)/N_batch
@@ -118,8 +120,8 @@ class CTLSTM(nn.Module):
         N_events = seq.shape[1]
         
         loss = torch.zeros(N_batch)
-        for ev in range(N_events-1):
-            lambs = lambOuts[pt.arange(N_batch), seq[:, ev+1]]
+        for ev in range(N_events):
+            lambs = lambOuts[pt.arange(N_batch), seq[:, ev]]
             logLambs = pt.log(lambs)
             
             loss += pt.sum(logLambs, dim=1)
