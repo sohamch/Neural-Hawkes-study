@@ -110,7 +110,7 @@ class CTLSTM(nn.Module):
             # print(clow.shape, cbar.shape, delta.shape, ct.shape, ht.shape, lamb_til.shape, lamb.shape, lamb_total.shape)
             I += lamb_total/Nsamples
         
-        return -pt.sum(I, dim=0)/N_batch
+        return pt.sum(I, dim=0)/N_batch
     
     def logLoss(self, seq, lambOuts):
         
@@ -119,14 +119,18 @@ class CTLSTM(nn.Module):
         N_batch = seq.shape[0]
         N_events = seq.shape[1]
         
-        loss = torch.zeros(N_batch)
+        loss = 0.
         for ev in range(N_events):
-            lambs = lambOuts[pt.arange(N_batch), seq[:, ev]]
+            # For every sequence, get the log of the intensity
+            # of the event that has occured at ev^th timestamp
+            lambs = lambOuts[pt.arange(N_batch), ev, seq[:, ev]]
             logLambs = pt.log(lambs)
             
-            loss += pt.sum(logLambs, dim=1)
+            # Then add them up
+            loss += pt.sum(logLambs)
         
-        return -pt.sum(loss, dim=0)/N_batch
+        # return the batch average
+        return -loss/N_batch
     
     def forward(self, seq, times):
         # seq : one hot encoded vectors of events (size N_batch x N_events x K)
