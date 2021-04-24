@@ -22,18 +22,13 @@ class CTLSTM(nn.Module):
         self.K = K
         
         # hD : dimensionality of hidden nodes
-        self.hD
+        self.hD = hD
         
         # input to L_U will be a feature vector, which is K-dim
         self.L_U = nn.Linear(K, 7*hD) # for each of the six gates + delta
         
         # input to L_V will be h_t, which is hD dim
         self.L_V = nn.Linear(hD, 7*hD)
-        
-        # Remember : the decay rate is one-dimensional
-        # it has different non-linearity, so it needs to be done separately
-        self.D_U == nn.Linear(K, 1)
-        self.D_V == nn.Linear(hD, 1)
         
         # We need another linear layer to compute lambda_tilde
         # This layer takes hD-dimensional h(t) and returns K-dimensional vector
@@ -50,7 +45,7 @@ class CTLSTM(nn.Module):
     
     def MC_Loss(self, times, Clows, Cbars, deltas, OutGates, Nsamples=1000):
         
-        # "times" is of dimension (N_batch x N_events)
+        # "times" is of dimension (N_batch x N_events+1)
         # Our time invterval will be between 0 to times[-1]
         N_batch = times.shape[0]
         randNums = pt.rand(N_batch, Nsamples)
@@ -143,28 +138,28 @@ class CTLSTM(nn.Module):
         cbar = pt.zeros(N_batch, self.hd)
         ht = pt.zeros(N_batch, self.hd)
         
-        lambOuts = pt.zeros(N_batch, N_events - 1, self.K)
+        lambOuts = pt.zeros(N_batch, N_events, self.K)
         
         # We also need the following quantities to do the MC sampling
         # We also need the "c" values and deltas for the MC sampling
-        Clows = pt.zeros(N_batch, N_events - 1, self.hD)
-        Cbars = pt.zeros(N_batch, N_events - 1, self.hD)
+        Clows = pt.zeros(N_batch, N_events, self.hD)
+        Cbars = pt.zeros(N_batch, N_events, self.hD)
         
-        deltas = pt.zeros(N_batch, N_events - 1, self.hD)
+        deltas = pt.zeros(N_batch, N_events, self.hD)
         
-        OutGates = pt.zeros(N_batch, N_events - 1, self.hD)
+        OutGates = pt.zeros(N_batch, N_events, self.hD)
         
         # Now let's propagate through the event sequence
         # We'll go from event 0 to event N_events-1
         # at each time index, the lambda values will be predicted
         # for the next time index.
-        for evInd in range(N_events - 1):
+        for evInd in range(N_events):
             
-            x = seq[:, evInd, :]  # feature vectors from all batches at this timeStamp
+            xNext = seq[:, evInd, :]  # feature vectors from all batches at this timeStamp
             
             # Let's get all the output together first
             
-            NNOuts = self.L_U(x) + self.L_V(h_t)
+            NNOuts = self.L_U(xNext) + self.L_V(h_t)
             # Now separate out the quantities
             # The first index will be for all samples in the batch
             i, f = self.sigma(NNOuts[:, :self.hd]), self.sigma(NNOuts[:, self.hd:2*self.hd])
