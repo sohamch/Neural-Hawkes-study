@@ -176,8 +176,8 @@ class CTLSTM(nn.Module):
             # Remember that "z" has a factor of 2 in front of it
             z, o = 2*self.sigma(NNOuts[:, 4*self.hD:5*self.hD]), self.sigma(NNOuts[:, 5*self.hD:6*self.hD])
             
-            # let's use leaky_relu for delta for now
-            delta = F.leaky_relu(NNOuts[:, 6*self.hD:7*self.hD])
+            # let's use relu for delta for now
+            delta = F.softplus(NNOuts[:, 6*self.hD:7*self.hD])
             # delta is (N_batchx1)
             
             # Now, from these outputs, we need to construct our cell memories
