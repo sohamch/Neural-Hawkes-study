@@ -69,7 +69,7 @@ class CTLSTM(nn.Module):
         # Using the intervals in which the sample times lie,
         # we have to find the rates
         
-        I = pt.zeros(N_batch)
+        I = pt.zeros(N_batch).double()
 
         for tInd in range(Nsamples):
             t = trands[:, tInd].view(-1,1)
@@ -108,9 +108,10 @@ class CTLSTM(nn.Module):
             # get the sum total rate of all events
             lamb_total = pt.sum(lamb, dim=1)
             # print(clow.shape, cbar.shape, delta.shape, ct.shape, ht.shape, lamb_til.shape, lamb.shape, lamb_total.shape)
-            I += lamb_total/Nsamples
+            I += lamb_total*times[:,-1]/Nsamples
         
-        return pt.sum(I, dim=0)/N_batch
+        # return trands and the indices also for testing the integral
+        return pt.sum(I, dim=0)/N_batch, trands, t_up
     
     def logLoss(self, seq, lambOuts):
         
@@ -140,20 +141,20 @@ class CTLSTM(nn.Module):
         
         # Need to initialize the cell memories
         # When nothing has occurred, the cell memories should be zero
-        ct = pt.zeros(N_batch, self.hD)
-        cbar = pt.zeros(N_batch, self.hD)
-        ht = pt.zeros(N_batch, self.hD)
+        ct = pt.zeros(N_batch, self.hD).double()
+        cbar = pt.zeros(N_batch, self.hD).double()
+        ht = pt.zeros(N_batch, self.hD).double()
         
-        lambOuts = pt.zeros(N_batch, N_events, self.K)
+        lambOuts = pt.zeros(N_batch, N_events, self.K).double()
         
         # We also need the following quantities to do the MC sampling
         # We also need the "c" values and deltas for the MC sampling
-        CLows = pt.zeros(N_batch, N_events, self.hD)
-        Cbars = pt.zeros(N_batch, N_events, self.hD)
+        CLows = pt.zeros(N_batch, N_events, self.hD).double()
+        Cbars = pt.zeros(N_batch, N_events, self.hD).double()
         
-        deltas = pt.zeros(N_batch, N_events, self.hD)
+        deltas = pt.zeros(N_batch, N_events, self.hD).double()
         
-        OutGates = pt.zeros(N_batch, N_events, self.hD)
+        OutGates = pt.zeros(N_batch, N_events, self.hD).double()
         
         # Now let's propagate through the event sequence
         # We'll go from event 0 to event N_events-1
