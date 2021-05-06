@@ -38,7 +38,7 @@ class CTLSTM(nn.Module):
         # we need scaling parameters
         # we need to make these scales a part of the
         # learnable parameter set
-        self.scale = nn.Parameter(pt.rand(K, requires_grad=True))
+        self.scale = nn.Parameter(pt.ones(K, requires_grad=True))
         
         # let's work with reLU for now
         self.sigma = pt.sigmoid
