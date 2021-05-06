@@ -32,7 +32,7 @@ class CTLSTM(nn.Module):
         
         # We need another linear layer to compute lambda_tilde
         # This layer takes hD-dimensional h(t) and returns K-dimensional vector
-        self.L_lamb_til = nn.Linear(hD, K)
+        self.L_lamb_til = nn.Linear(hD, K, bias=False)
         
         # Then, to predict lambda from lambda_tilde using softplus,
         # we need scaling parameters
@@ -43,14 +43,15 @@ class CTLSTM(nn.Module):
         # let's work with reLU for now
         self.sigma = pt.sigmoid
     
-    def MC_Loss(self, times, Clows, Cbars, deltas, OutGates, Nsamples=1000):
+    def MC_Loss(self, times, tMax, Clows, Cbars, deltas, OutGates, Nsamples=1000):
         
-        # "times" is of dimension (N_batch x N_events+1)
-        # Our time invterval will be between 0 to times[-1]
+        # "times" is of dimension (N_mask x N_events+1)
+        # tMax contains the maximum time of each sequence in the batch
+        # Our time invterval will be between 0 to tMax for each sequence
         N_batch = times.shape[0]
         randNums = pt.rand(N_batch, Nsamples)
-        trands = randNums * times[:,-1].view(-1, 1)
-        # trands will be of shape N_batch x Nsamples
+        trands = randNums * tMax.view(-1, 1)
+        # trands will be of shape N_mask x Nsamples
         # each row of trands will correspond to Nsamples
         # random times between 0 to the end time
         # of the corresponding sequence.
@@ -103,7 +104,7 @@ class CTLSTM(nn.Module):
             
             # this will contain the event intensities for all the K events
             lamb = self.scale * pt.log(1 + pt.exp(lamb_til / self.scale))
-            # lamb is (N_batch x K)
+            # lamb is (N_mask x K)
             
             # get the sum total rate of all events
             lamb_total = pt.sum(lamb, dim=1)
@@ -113,7 +114,7 @@ class CTLSTM(nn.Module):
         # return trands and the indices also for testing the integral
         return pt.sum(I, dim=0)/N_batch, trands, t_up
     
-    def logLoss(self, seq, lambOuts):
+    def logLoss(self, seq, mask, lambOuts):
         
         # Here seq should not be one-hot encoded, but just be
         # the index of which outcome has occurred.
@@ -124,7 +125,7 @@ class CTLSTM(nn.Module):
         for ev in range(N_events):
             # For every sequence, get the log of the intensity
             # of the event that has occured at ev^th timestamp
-            lambs = lambOuts[pt.arange(N_batch), ev, seq[:, ev]]
+            lambs = lambOuts[pt.arange(N_batch), ev, seq[:, ev]][mask[:, ev]]
             logLambs = pt.log(lambs)
             
             # Then add them up
@@ -133,9 +134,10 @@ class CTLSTM(nn.Module):
         # return the batch average
         return -loss/N_batch
     
-    def forward(self, seq, times):
-        # seq : one hot encoded vectors of events (size N_batch x N_events x K)
-        # times : times of occurences of the events (size N_batch x N_events)
+    def forward(self, seq, mask, times):
+        # seq : one hot encoded vectors of events (size N_mask x N_events x K)
+        # mask : contains the mask for each sequence
+        # times : times of occurences of the events (size N_mask x N_events)
         N_events = seq.shape[1]
         N_batch = seq.shape[0]
         
@@ -162,7 +164,13 @@ class CTLSTM(nn.Module):
         # for the next time index.
         for evInd in range(N_events):
             
-            xNext = seq[:, evInd, :]  # feature vectors from all batches at this timeStamp
+            xNext = seq[:, evInd, :][mask[:, evInd]]
+            # feature vectors from all batches at this timeStamp
+            # mask is applied to eliminate samples that don't have data at this time stamp
+            # So, instead of N_batch events, we will select N_mask events
+            # where N_mask is the no. of elements of mask[:, evInd] that
+            # have "True" value
+            # Clearly, if all sequences have a valid event at this time, N_mask = N_batch
             
             # Let's get all the output together first
             
@@ -176,53 +184,57 @@ class CTLSTM(nn.Module):
             # Remember that "z" has a factor of 2 in front of it
             z, o = 2*self.sigma(NNOuts[:, 4*self.hD:5*self.hD]), self.sigma(NNOuts[:, 5*self.hD:6*self.hD])
             
-            # let's use relu for delta for now
+            # let's use leaky_relu for delta for now
             delta = F.softplus(NNOuts[:, 6*self.hD:7*self.hD])
-            # delta is (N_batchx1)
+            # delta is (N_maskx1)
             
             # Now, from these outputs, we need to construct our cell memories
             clow = f * ct + i * z
             cbar = fBar * cbar + iBar * z
-            # clow and cbar are (N_batch x hD)
+            # clow and cbar are (N_mask x hD)
             
             # get the times
-            tnow = times[:, evInd].view(-1, 1) # evInd-th time for all sequences in the batch
+            tnow = times[:, evInd][mask[:, evInd]].view(-1, 1) # evInd-th time for all sequences in the batch
             #TODO : make sure here that 0th events have time 0 across the batch
+            # the mask ensures that only sequences that have a valid time at this time stamp is selected
             
-            tnext = times[:, evInd + 1].view(-1, 1) # evInd+1-th time for all sequences in the batch
+            tnext = times[:, evInd + 1][mask[:, evInd]].view(-1, 1) 
+            # evInd+1-th time for all sequences in the batch
             
             # get c(t)
             ct = cbar + (clow - cbar)*pt.exp((tnext - tnow)*delta)
-            # ct is N_batch x hD
+            # ct is N_mask x hD
             
             # with the c(t), we now have to determine h(t)
             # eqn 4(b) on page 4 in the paper
             ht = o * (2*self.sigma(2*ct) - 1)
-            # o is N_batch x hD
-            # (2*self.sigma(2*ct) - 1) is N_batchxhD
-            # so ht is also N_batchxhD
+            # o is N_mask x hD
+            # (2*self.sigma(2*ct) - 1) is N_maskxhD
+            # so ht is also N_maskxhD
             
-            # ht is now (N_batch x hD)
+            # ht is now (N_mask x hD)
             # Now, eqn. 4(a) linear part
             lamb_til = self.L_lamb_til(ht)
-            # lamb_til is (N_batch x K)
+            # lamb_til is (N_mask x K)
             
             lamb = self.scale * pt.log(1 + pt.exp(lamb_til/self.scale))
             # Note : scale ("s") is K-dim vector
-            # lamb_til is (N_batch x K)
+            # lamb_til is (N_mask x K)
             # lamb_til / s will divide each K-dim row of "lamb_til"
             # with K-dim "s" element-wise
             # which is exactly what we want
             # same goes for the multiplication with s
             
-            # lamb is therefore (N_batch x K) - the predicted event rates at this timeStamp
-            lambOuts[:, evInd, :] = lamb
+            # lamb is therefore (N_mask x K) - the predicted event rates at this timeStamp
+            lambOuts[:, evInd, :][mask[:, evInd]] = lamb
             
             # Record the cell memories for the MC sampling
-            CLows[:, evInd, :] = clow
-            Cbars[:, evInd, :] = cbar
-            deltas[:, evInd, :] = delta
-            OutGates[:, evInd, :] = o
+            # mask ensures that only those sequence that have an event at this
+            # timestamp are recorded - rest are kept as zero.
+            CLows[:, evInd, :][mask[:, evInd]] = clow
+            Cbars[:, evInd, :][mask[:, evInd]] = cbar
+            deltas[:, evInd, :][mask[:, evInd]] = delta
+            OutGates[:, evInd, :][mask[:, evInd]] = o
         
         return lambOuts, CLows, Cbars, deltas, OutGates
 
