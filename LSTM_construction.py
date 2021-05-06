@@ -104,12 +104,11 @@ class CTLSTM(nn.Module):
             
             # this will contain the event intensities for all the K events
             lamb = self.scale * pt.log(1 + pt.exp(lamb_til / self.scale))
-            # lamb is (N_mask x K)
             
             # get the sum total rate of all events
             lamb_total = pt.sum(lamb, dim=1)
             # print(clow.shape, cbar.shape, delta.shape, ct.shape, ht.shape, lamb_til.shape, lamb.shape, lamb_total.shape)
-            I += lamb_total*times[:,-1]/Nsamples
+            I += lamb_total*tMax/Nsamples
         
         # return trands and the indices also for testing the integral
         return pt.sum(I, dim=0)/N_batch, trands, t_up
@@ -125,8 +124,8 @@ class CTLSTM(nn.Module):
         for ev in range(N_events):
             # For every sequence, get the log of the intensity
             # of the event that has occured at ev^th timestamp
-            lambs = lambOuts[pt.arange(N_batch), ev, seq[:, ev]][mask[:, ev]]
-            logLambs = pt.log(lambs)
+            lambs = lambOuts[pt.arange(N_batch), ev, seq[:, ev]]
+            logLambs = pt.log(lambs[mask[:, ev]])
             
             # Then add them up
             loss += pt.sum(logLambs)
@@ -173,8 +172,8 @@ class CTLSTM(nn.Module):
             # Clearly, if all sequences have a valid event at this time, N_mask = N_batch
             
             # Let's get all the output together first
-            
-            NNOuts = self.L_U(xNext) + self.L_V(ht)
+            # from ht, use only those sequences that have a valid event (mask is not false)
+            NNOuts = self.L_U(xNext) + self.L_V(ht[mask[:, evInd]])
             # Now separate out the quantities
             # The first index will be for all samples in the batch
             i, f = self.sigma(NNOuts[:, :self.hD]), self.sigma(NNOuts[:, self.hD:2*self.hD])
@@ -187,10 +186,11 @@ class CTLSTM(nn.Module):
             # let's use leaky_relu for delta for now
             delta = F.softplus(NNOuts[:, 6*self.hD:7*self.hD])
             # delta is (N_maskx1)
+            # All the gates are N_mask x hD
             
             # Now, from these outputs, we need to construct our cell memories
-            clow = f * ct + i * z
-            cbar = fBar * cbar + iBar * z
+            clow = f * ct[mask[:, evInd]] + i * z
+            cbar[mask[:, evInd]] = fBar * cbar[mask[:, evInd]] + iBar * z
             # clow and cbar are (N_mask x hD)
             
             # get the times
@@ -201,20 +201,21 @@ class CTLSTM(nn.Module):
             tnext = times[:, evInd + 1][mask[:, evInd]].view(-1, 1) 
             # evInd+1-th time for all sequences in the batch
             
-            # get c(t)
-            ct = cbar + (clow - cbar)*pt.exp((tnext - tnow)*delta)
+            # get c(t) for samples with a valid event at this time
+            ct[mask[:, evInd]] = cbar[mask[:, evInd]] + (clow - cbar[mask[:, evInd]])*pt.exp((tnext - tnow)*delta)
             # ct is N_mask x hD
             
             # with the c(t), we now have to determine h(t)
+            # we record it for only samples with valid events
             # eqn 4(b) on page 4 in the paper
-            ht = o * (2*self.sigma(2*ct) - 1)
+            ht[mask[:, evInd]] = o * (2*self.sigma(2*ct[mask[:, evInd]]) - 1)
             # o is N_mask x hD
-            # (2*self.sigma(2*ct) - 1) is N_maskxhD
+            # (2*self.sigma(2*ct[mask[:, evInd]]) - 1) is N_maskxhD
             # so ht is also N_maskxhD
             
             # ht is now (N_mask x hD)
             # Now, eqn. 4(a) linear part
-            lamb_til = self.L_lamb_til(ht)
+            lamb_til = self.L_lamb_til(ht[mask[:, evInd]])
             # lamb_til is (N_mask x K)
             
             lamb = self.scale * pt.log(1 + pt.exp(lamb_til/self.scale))
@@ -232,7 +233,7 @@ class CTLSTM(nn.Module):
             # mask ensures that only those sequence that have an event at this
             # timestamp are recorded - rest are kept as zero.
             CLows[:, evInd, :][mask[:, evInd]] = clow
-            Cbars[:, evInd, :][mask[:, evInd]] = cbar
+            Cbars[:, evInd, :][mask[:, evInd]] = cbar[mask[:, evInd]]
             deltas[:, evInd, :][mask[:, evInd]] = delta
             OutGates[:, evInd, :][mask[:, evInd]] = o
         
