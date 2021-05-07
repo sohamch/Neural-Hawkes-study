@@ -34,6 +34,12 @@ class CTLSTM(nn.Module):
         # This layer takes hD-dimensional h(t) and returns K-dimensional vector
         self.L_lamb_til = nn.Linear(hD, K, bias=False)
         
+        nn.init.normal_(self.L_U.weight, mean=0.0, std=0.01)
+        nn.init.normal_(self.L_V.weight, mean=0.0, std=0.01)
+        nn.init.normal_(self.L_U.bias, mean=0.0, std=0.01)
+        nn.init.normal_(self.L_V.bias, mean=0.0, std=0.01)
+        nn.init.normal_(self.L_lamb_til.weight, mean=0.0, std=0.01)
+        
         # Then, to predict lambda from lambda_tilde using softplus,
         # we need scaling parameters
         # we need to make these scales a part of the
@@ -94,7 +100,7 @@ class CTLSTM(nn.Module):
             # compute c(t)
             # Note here we use "t - tlow"
             # print(cbar.shape, clow.shape, delta.shape, t.shape, tlow.shape, (t - tlow).view(-1,1).shape)
-            ct = cbar + (clow - cbar)*pt.exp((t - tlow)*delta)
+            ct = cbar + (clow - cbar)*pt.exp(-(t - tlow)*delta)
             
             # compute h(t)
             ht = o * (2*self.sigma(2*ct) - 1)
@@ -202,7 +208,7 @@ class CTLSTM(nn.Module):
             # evInd+1-th time for all sequences in the batch
             
             # get c(t) for samples with a valid event at this time
-            ct[mask[:, evInd]] = cbar[mask[:, evInd]] + (clow - cbar[mask[:, evInd]])*pt.exp((tnext - tnow)*delta)
+            ct[mask[:, evInd]] = cbar[mask[:, evInd]] + (clow - cbar[mask[:, evInd]])*pt.exp(-(tnext - tnow)*delta)
             # ct is N_mask x hD
             
             # with the c(t), we now have to determine h(t)
