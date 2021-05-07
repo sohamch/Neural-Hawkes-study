@@ -87,6 +87,8 @@ class CTLSTM(nn.Module):
             # stackoverflow.com/questions/58523290
             # to understand how the indices are being tracked.
             idx = t_up[:, tInd]
+            if pt.any(idx < 1):
+                continue
             tlow = times.gather(1, (idx-1).view(-1, 1))
             
             # To understand indexing multi-d tensors using different indices
