@@ -5,7 +5,7 @@ Description of Files in order as they should be accessed when training from scra
 (1) Retweet Folder
 Note: The Google drive link for training and testing data is provided by the authors of the neural Hawkes process at: https://github.com/HMEIatJHU/neurawkes/tree/master/data
 
-- “LSTM_construction.py” : The implementation of the continuous time LSTM (CTLSTM) using PyTorch - this file should always be present in the working directory where training and testing is being carried out.
+- “LSTM_construction.py” : The implementation of the continuous time LSTM (CTLSTM) using PyTorch (to be imported in th jupyter notebooks for training and testing).
 
 
 - “data Loader-Retweet_train.ipynb” - contains code to convert data from the “train.pkl” file, containing training sequences into HDF5 file format.
