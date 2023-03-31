@@ -1,6 +1,5 @@
 # Neural-Hawkes-study
 An exercise in implementing the Neural Hawkes Process based on the paper by Hongyuan Mei and Jason Eisner at https://arxiv.org/pdf/1612.09328.pdf 
-## Team members - Soham Chattopadhyay, Parth Gera, Sourya Sengupta, Manan Mehta.
 Description of Files in order as they should be accessed when training from scratch:
 (1) Retweet Folder
 Note: The Google drive link for training and testing data is provided by the authors of the neural Hawkes process at: https://github.com/HMEIatJHU/neurawkes/tree/master/data
@@ -32,3 +31,5 @@ The stackoverflow folder contains files exactly analogous to the ones mentioned 
 
 Important Note:
 Stable accurate networks were obtained for the Retweet dataset at 40 epochs and for the Stackoverflow datasets and 28 epochs of training. Beyond this, instabilities were found to arise.
+
+## Acknowledgements - Parth Gera, Sourya Sengupta, Manan Mehta for helpful discussions.
