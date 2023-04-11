@@ -1,5 +1,5 @@
 # Neural-Hawkes-study
-An exercise in implementing the Neural Hawkes Process based on the paper by Hongyuan Mei and Jason Eisner at https://arxiv.org/pdf/1612.09328.pdf 
+An exercise in PyTorch in implementing the Neural Hawkes Process based on the paper by Hongyuan Mei and Jason Eisner at https://arxiv.org/pdf/1612.09328.pdf 
 
 Note: The Google drive link for training and testing data is provided by the authors of the neural Hawkes process at: https://github.com/HMEIatJHU/neurawkes/tree/master/data
 
