@@ -2,8 +2,9 @@
 An exercise in implementing the Neural Hawkes Process based on the paper by Hongyuan Mei and Jason Eisner at https://arxiv.org/pdf/1612.09328.pdf 
 Description of Files in order as they should be accessed when training from scratch:
 
-(1) Retweet Folder
 Note: The Google drive link for training and testing data is provided by the authors of the neural Hawkes process at: https://github.com/HMEIatJHU/neurawkes/tree/master/data
+
+(1) Retweet Folder
 
 - “LSTM_construction.py” : The implementation of the continuous time LSTM (CTLSTM) using PyTorch (to be imported in th jupyter notebooks for training and testing).
 
